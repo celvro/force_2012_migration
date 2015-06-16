@@ -39,35 +39,27 @@ GetOptions(
 
     'threads=i' => \$max_threads,
     'thread-wait=i' => \$thread_wait,
-
-    'auth-program=s' => \$auth_program,
-    'username=s' => sub { $auth[0] = $_[1] },
-    'password=s' => sub { $auth[1] = $_[1] },
-
-    'data=s' => \@data_files,
-    'type=s' => \$template_type,
-
-    'random-packages=s' => sub {
-        $random_config = [ split(/,/,$_[1]) ];
-        # Only specifying one number means the range is [n,n].
-        push(@$random_config,$random_config->[0]) if (@$random_config == 1);
-
-        # This needs to be appended.
-        push(@$random_config, \@random_exclude_packages);
-
-        print("Random: ".$random_config->[0].','.$random_config->[1]."\n");
-    },
+    'file=s' => \$filename,
 );
+
+open my $fh, '<', $filename or die $!;
+chomp(my @hosts = <$fh>);
+close $fh;
+
 print("Using ${max_threads} threads.\n");
+
+sub install_client {
+    my $hostname = shift;
+    system( 'psexec -s \\\\'.$hostname.' C:\Perl64\bin\perl.exe '.
+            '\\\\minerfiles.mst.edu\dfs\software\appserv\sccm_2012_client\update-prod-server.pl' );
+}
 
 # Generate a template for each host in %host_specs.
 my @threads;
-foreach my $host (keys(%host_specs)) {
+foreach my $host (@hosts) {
     if ($max_threads > 0) {
-        push(@threads,threads->create(\&GenerateTemplate,
-                                      $host,$host_specs{$host},\@auth,
-                                      $verbose,
-                                      'random' => $random_config));
+        push(@threads,threads->create(\&install_client,
+                                      $host));
 
         print '*';
         # Give the thread a head start before launching another one.
@@ -79,10 +71,6 @@ foreach my $host (keys(%host_specs)) {
             print ".";
             sleep(1);
         }
-    } else {
-        GenerateTemplate($host,$host_specs{$host},\@auth,
-                         $verbose,
-                         'random' => $random_config);
     }
 }
 if ($max_threads > 0) {
