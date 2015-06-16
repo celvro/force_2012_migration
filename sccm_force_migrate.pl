@@ -8,7 +8,6 @@ use WWW::Mechanize;
 use HTML::TreeBuilder::XPath;
 use Text::CSV;
 use Getopt::Long;
-use UMR::NetworkInfo;
 use Term::ReadKey;
 use Data::Dumper;
 use Time::HiRes qw(gettimeofday tv_interval);
@@ -19,17 +18,17 @@ use List::Util;
 sub usage {
     print qq/
 usage: $0 [--help] [--verbose] [--test]
-         [--threads <n>] [--hosts-file <file>] [--hosts=host1,host2,host3,...]
-
-Execute a perl script on provided remote machines. This script copies down required files to all machines and then
-executes the script, reporting back success and failure for each machine. It has a threaded option which will allow for faster
-execution by not
-
+         [--threads <n>] [--thread-wait <n>]
+         [--hosts-file <file>] [--hosts=host1,host2,host3,...]
 /;
 }
 
 my $test_only = 0;
 my $verbose   = 0;
+my $max_threads = 2;
+my $thread_wait = 5;
+
+my @hosts;
 
 Getopt::Long::Configure(qw(no_pass_through));
 GetOptions(
@@ -39,14 +38,41 @@ GetOptions(
 
     'threads=i' => \$max_threads,
     'thread-wait=i' => \$thread_wait,
-    'file=s' => \$filename,
+    'hosts=s' => sub {
+        push(@hosts,split(',',$_[1]));
+    },
+    'hosts-file=s' => sub {
+        if (open(my $FILE,'<',$_[1])) {
+            foreach my $line (<$FILE>) {
+                chomp($line);
+                $line =~ s/\.managed\.mst\.edu//g;
+                push(@hosts,$line);
+            }
+            close($FILE);
+        } else {
+            die("Error opening hostnames file '$_[0]': $!");
+        }
+    },
 );
 
-open my $fh, '<', $filename or die $!;
-chomp(my @hosts = <$fh>);
-close $fh;
+if (scalar(@hosts)==0) {
+    print "You did not specify any machines.\n";
+    usage();
+    exit(0);
+}
+
+if ($test_only)
+{
+    print "Found ", scalar(@hosts), " hosts.\n";
+    foreach my $host (@hosts)
+    {
+        print "  $host\n";
+    }
+    exit(0);
+}
 
 print("Using ${max_threads} threads.\n");
+my $start_time = [gettimeofday];
 
 sub install_client {
     my $hostname = shift;
@@ -82,7 +108,7 @@ if ($max_threads > 0) {
     }
 }
 
-my $elapsed = tv_interval($start_time);
+my $elapsed = tv_interval($start_time, [gettimeofday]);
 print("\nProcess completed in ${elapsed} seconds.\n");
 
 sub ProcessFinishedThreads {
