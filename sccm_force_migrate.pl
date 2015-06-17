@@ -99,8 +99,13 @@ sub install_client {
 
 
 foreach my $host (@hosts) {
-    install_client($host);
+    unless( fork() )
+    {
+        install_client($host);
+        exit(0);
+    }
 }
+while (wait() != -1) { sleep(1); }
 
 my $elapsed = tv_interval($start_time, [gettimeofday]);
 print("\nProcess completed in ${elapsed} seconds.\n");
