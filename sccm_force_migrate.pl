@@ -32,11 +32,8 @@ GetOptions(
         if (open(my $FILE,'<',$_[1])) {
             foreach my $line (<$FILE>) {
                 chomp($line);
-                if($line =~ /^r/)
-                {
-                    $line =~ s/\.managed\.mst\.edu//;
-                    push(@hosts,$line);
-                }
+                $line =~ s/\.managed\.mst\.edu//;
+                push(@hosts,$line);
             }
             close($FILE);
         } else {
@@ -65,15 +62,18 @@ system("del /q logs\\*.txt");
 
 if($check_install)
 {
-    foreach my $host (@hosts)
-    {
-        unless( fork() )
+    for (my $i=0; $i<@hosts; $i+=8) {
+        my @hosts_group = @hosts[$i..$i+7];
+        foreach my $host (@hosts_group)
         {
-            check($host);
-            exit(0);
+            if( !fork() )
+            {
+                check($host);
+                exit(0);
+            }
         }
+        while (wait()!=-1) { };
     }
-    while (wait() != -1) { sleep(1); }
     join_logs();
 }
 
@@ -101,6 +101,7 @@ sub check {
 }
 
 sub is_installed {
+    return 1;
     my $hostname = shift;
     return ( -f '\\\\'.$hostname.'\c$\windows\ccm\scclient.exe' );
 }
@@ -181,7 +182,8 @@ sub join_logs {
                 chomp($line);
                 if ( $line =~ /\[(.*)\] (.*)/ )
                 {
-                    system("echo $2 >> $1.txt");
+                    my $find = system("findstr /c:\"$2\" $1.txt >nul");
+                    system("echo $2 >> $1.txt") if $find;
                 }
             }
             close($fh);
