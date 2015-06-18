@@ -16,6 +16,9 @@ usage: $0 [--help] [--verbose] [--test]
 my $test_only = 0;
 my $verbose   = 0;
 my $check_install = 0;
+my $max_threads = 32;
+my $children = 0;
+my $pid;
 
 my @hosts;
 
@@ -32,7 +35,6 @@ GetOptions(
         if (open(my $FILE,'<',$_[1])) {
             foreach my $line (<$FILE>) {
                 chomp($line);
-                $line =~ s/\.managed\.mst\.edu//;
                 push(@hosts,$line);
             }
             close($FILE);
@@ -40,6 +42,7 @@ GetOptions(
             die("Error opening hostnames file '$_[0]': $!");
         }
     },
+    'threads=i' => \$max_threads,
 );
 
 if (scalar(@hosts)==0) {
@@ -59,21 +62,29 @@ if ($test_only)
 }
 
 system("del /q logs\\*.txt");
+system("del /q TIMEOUT.txt OFFLINE.txt");
 
 if($check_install)
 {
-    for (my $i=0; $i<@hosts; $i+=8) {
-        my @hosts_group = @hosts[$i..$i+7];
-        foreach my $host (@hosts_group)
-        {
-            if( !fork() )
-            {
-                check($host);
-                exit(0);
-            }
+    for my $host (@hosts) {
+        if ($children == $max_threads) {
+            $pid = wait();
+            $children--;
         }
-        while (wait()!=-1) { };
+        
+        if (defined($pid = fork())) {
+            if ($pid==0) {
+                check($host);
+                exit();
+            } else {
+                $children++;
+            }
+        } else {
+            print "ERROR: Could not fork!\n";
+        }
     }
+    
+    while (wait()!=-1) { $children--; };
     join_logs();
 }
 
@@ -101,15 +112,15 @@ sub check {
 }
 
 sub is_installed {
-    return 1;
     my $hostname = shift;
-    return ( -f '\\\\'.$hostname.'\c$\windows\ccm\scclient.exe' );
+    return -f '\\\\'.$hostname.'\c$\windows\ccm\scclient.exe';
 }
 
 sub is_online {
     my $hostname = shift;
-    `ping -n 1 $hostname`;
-    if ( $?!=0 )
+    my $ping = `ping -n 1 $hostname`;
+    
+    if ( $?!=0 or $ping =~ /unreachable/ )
     {
         print "  [OFFLINE] $hostname\n";
         system("echo [OFFLINE] $hostname >> logs/$hostname.txt");
@@ -120,25 +131,19 @@ sub is_online {
 
 sub install_client {
     my $hostname = shift;
-    my $find;
     
-    if ( -f "started.txt" )
+    my $find = system('findstr /c:"$hostname" started.txt >nul 2>nul');
+    if ( $find==0 )
     {
-        $find = system('findstr /c:"$hostname" started.txt >nul');
-        if ( $find==0 )
-        {
-            print "$hostname already started.\n";
-            return 1;
-        }
+        print "$hostname already started.\n";
+        return 1;
     }
-    if ( -f "done.txt" )
+
+    $find = system('findstr /c:"$hostname" done.txt >nul 2>nul');
+    if ( $find==0 )
     {
-        $find = system('findstr /c:"$hostname" done.txt >nul');
-        if ( $find==0 )
-        {
-            print "$hostname already installed.\n";
-            return 1;
-        }
+        print "$hostname already installed.\n";
+        return 1;
     }
     
     if ( !is_online($hostname) )
@@ -149,9 +154,9 @@ sub install_client {
     if ( !is_installed($hostname) )
     {
         my $log = '\\\\'.$hostname.'\c$\windows\system32\umrinst\applogs\sccm2012_psexec_log.txt';
-        my $cmd = system( 'psexec -n 2 -d -s \\\\'.$hostname.' C:\Perl64\bin\perl.exe '.
+        my $cmd = system( 'psexec -n 5 -d -s \\\\'.$hostname.' C:\Perl64\bin\perl.exe '.
                              '\\\\minerfiles.mst.edu\dfs\software\appserv\sccm_2012_client\update-prod-server.pl '.
-                             "2>$hostname" );
+                             "2>logs\\psexec_$hostname.txt" );
         if ( $cmd == 46080 )
         {
             print "  [TIMEOUT] $hostname\n";
@@ -159,20 +164,20 @@ sub install_client {
             return 0;
         }
         
-        print "$hostname started.\n";
+        print "  [STARTED] $hostname\n";
         system("echo [STARTED] $hostname >> logs/$hostname.txt");
     }
     else
     {
-        print "$hostname already installed.\n";
-        system("echo [OK] $hostname >> logs/$hostname.txt");
+        print "  [DONE] $hostname\n";
+        system("echo [DONE] $hostname >> logs/$hostname.txt");
     }
     
     return 1;
 }
 
 sub join_logs {
-    print "Joining Logs...\n";
+    print "Joining logs...\n";
     foreach my $file (<logs/*>)
     {
         if(open(my $fh,'<',$file))
@@ -182,7 +187,7 @@ sub join_logs {
                 chomp($line);
                 if ( $line =~ /\[(.*)\] (.*)/ )
                 {
-                    my $find = system("findstr /c:\"$2\" $1.txt >nul");
+                    my $find = system("findstr /c:\"$2\" $1.txt >nul 2>nul");
                     system("echo $2 >> $1.txt") if $find;
                 }
             }
@@ -196,14 +201,25 @@ sub join_logs {
     exit(0);
 }
 
-foreach my $host (@hosts) {
-    unless( fork() )
-    {
-        install_client($host);
-        exit(0);
+for my $host (@hosts) {
+    if ($children == $max_threads) {
+        $pid = wait();
+        $children--;
+    }
+    
+    if (defined($pid = fork())) {
+        if ($pid==0) {
+            install_client($host);
+            exit();
+        } else {
+            $children++;
+        }
+    } else {
+        print "ERROR: Could not fork!\n";
     }
 }
-while (wait() != -1) { }
+
+while (wait()!=-1) { $children--; };
 
 my $elapsed = tv_interval($start_time, [gettimeofday]);
 print("\nProcess completed in ${elapsed} seconds.\n");
