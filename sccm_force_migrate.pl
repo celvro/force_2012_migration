@@ -132,17 +132,17 @@ sub is_online {
 sub install_client {
     my $hostname = shift;
     
-    my $find = system('findstr /c:"$hostname" started.txt >nul 2>nul');
+    my $find = system("findstr /c:\"$hostname\" started.txt >nul 2>nul");
     if ( $find==0 )
     {
-        print "$hostname already started.\n";
+        print "  [SKIPPED] $hostname already started.\n";
         return 1;
     }
 
-    $find = system('findstr /c:"$hostname" done.txt >nul 2>nul');
+    $find = system("findstr /c:\"$hostname\" done.txt >nul 2>nul");
     if ( $find==0 )
     {
-        print "$hostname already installed.\n";
+        print "  [SKIPPED] $hostname already installed.\n";
         return 1;
     }
     
