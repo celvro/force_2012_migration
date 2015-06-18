@@ -10,6 +10,19 @@ sub usage {
     print qq/
 usage: $0 [--help] [--verbose] [--test]
         [--hosts-file <file>] [--hosts=host1,host2,host3,...]
+        [--threads <n>] [--check-install]
+    
+--test
+    Only display the machines read in.
+--hosts-file
+    Specify a file to read hosts from. Use 1 host per line.
+--hosts
+    A comma delimited list of hosts to use
+--threads
+    Max number of threads. Setting this too high will fail.
+    DEFAULT: 32
+--check-install
+    Only checks to see if client is installed on machines.
 /;
 }
 
@@ -62,7 +75,13 @@ if ($test_only)
 }
 
 system("del /q logs\\*.txt");
-system("del /q TIMEOUT.txt OFFLINE.txt");
+system("del /q TIMEOUT.txt");
+system("del /q OFFLINE.txt");
+system("del /q NOTFOUND.txt");
+
+
+my $start_time = [gettimeofday];
+print "Using $max_threads threads.\n";
 
 if($check_install)
 {
@@ -88,7 +107,29 @@ if($check_install)
     join_logs();
 }
 
-my $start_time = [gettimeofday];
+for my $host (@hosts) {
+    if ($children == $max_threads) {
+        $pid = wait();
+        $children--;
+    }
+    
+    if (defined($pid = fork())) {
+        if ($pid==0) {
+            install_client($host);
+            exit();
+        } else {
+            $children++;
+        }
+    } else {
+        print "ERROR: Too many threads, could not fork!\n";
+    }
+}
+
+while (wait()!=-1) { $children--; };
+join_logs();
+
+#####
+#####
 
 sub check {
     my $host = shift;
@@ -154,18 +195,29 @@ sub install_client {
     if ( !is_installed($hostname) )
     {
         my $log = '\\\\'.$hostname.'\c$\windows\system32\umrinst\applogs\sccm2012_psexec_log.txt';
-        my $cmd = system( 'psexec -n 5 -d -s \\\\'.$hostname.' C:\Perl64\bin\perl.exe '.
+        my $cmd = system( 'psexec -n 30 -d -s \\\\'.$hostname.' C:\Perl64\bin\perl.exe '.
                              '\\\\minerfiles.mst.edu\dfs\software\appserv\sccm_2012_client\update-prod-server.pl '.
                              "2>logs\\psexec_$hostname.txt" );
-        if ( $cmd == 46080 )
-        {
-            print "  [TIMEOUT] $hostname\n";
-            system("echo [TIMEOUT] $hostname >> logs/$hostname.txt");
-            return 0;
+                             
+        my ($timeout, $started) = (0,0);
+        open(my $fh,'<',"logs\\psexec_$hostname.txt") or print "Could not open: $!";
+        foreach (<$fh>) {
+            if (/timeout/) {
+                $timeout = 1;
+                print "  [TIMEOUT] $hostname\n";
+                system("echo [TIMEOUT] $hostname >> logs/$hostname.txt");
+            } elsif (/started on/) {
+                $started = 1;
+                print "  [STARTED] $hostname\n";
+                system("echo [STARTED] $hostname >> logs/$hostname.txt");
+            }
         }
-        
-        print "  [STARTED] $hostname\n";
-        system("echo [STARTED] $hostname >> logs/$hostname.txt");
+        if ( !$timeout && !$started )
+        {
+            print "  [FAILED] $hostname\n";
+            system("echo [FAILED] $hostname >> logs/$hostname.txt");
+        }
+        return $started;
     }
     else
     {
@@ -198,30 +250,9 @@ sub join_logs {
             print "Could not open $file\n";
         }
     }
+    
+    my $elapsed = tv_interval($start_time, [gettimeofday]);
+    print("\nProcess completed in ${elapsed} seconds.\n");
+    
     exit(0);
 }
-
-for my $host (@hosts) {
-    if ($children == $max_threads) {
-        $pid = wait();
-        $children--;
-    }
-    
-    if (defined($pid = fork())) {
-        if ($pid==0) {
-            install_client($host);
-            exit();
-        } else {
-            $children++;
-        }
-    } else {
-        print "ERROR: Could not fork!\n";
-    }
-}
-
-while (wait()!=-1) { $children--; };
-
-my $elapsed = tv_interval($start_time, [gettimeofday]);
-print("\nProcess completed in ${elapsed} seconds.\n");
-
-join_logs();
