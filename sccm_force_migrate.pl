@@ -48,7 +48,7 @@ GetOptions(
         if (open(my $FILE,'<',$_[1])) {
             foreach my $line (<$FILE>) {
                 chomp($line);
-                push(@hosts,$line);
+                push(@hosts,$line) if $line !~ /^\s*$/;
             }
             close($FILE);
         } else {
@@ -75,10 +75,6 @@ if ($test_only)
 }
 
 system("del /q logs\\*.txt");
-system("del /q TIMEOUT.txt");
-system("del /q OFFLINE.txt");
-system("del /q NOTFOUND.txt");
-
 
 my $start_time = [gettimeofday];
 print "Using $max_threads threads.\n";
@@ -197,10 +193,10 @@ sub install_client {
         my $log = '\\\\'.$hostname.'\c$\windows\system32\umrinst\applogs\sccm2012_psexec_log.txt';
         my $cmd = system( 'psexec -n 30 -d -s \\\\'.$hostname.' C:\Perl64\bin\perl.exe '.
                              '\\\\minerfiles.mst.edu\dfs\software\appserv\sccm_2012_client\update-prod-server.pl '.
-                             "2>logs\\psexec_$hostname.txt" );
+                             "2>logs\\psexec\\$hostname.txt" );
                              
         my ($timeout, $started) = (0,0);
-        open(my $fh,'<',"logs\\psexec_$hostname.txt") or print "Could not open: $!";
+        open(my $fh,'<',"logs\\psexec\\$hostname.txt") or print "Could not open: $!";
         foreach (<$fh>) {
             if (/timeout/) {
                 $timeout = 1;
@@ -230,6 +226,9 @@ sub install_client {
 
 sub join_logs {
     print "Joining logs...\n";
+    
+    system("echo. | tee -a DONE.txt FAILED.txt OFFLINE.txt STARTED.txt TIMEOUT.txt NOTFOUND.txt");
+    system("echo %DATE% %TIME% | tee -a DONE.txt FAILED.txt OFFLINE.txt STARTED.txt TIMEOUT.txt NOTFOUND.txt");
     foreach my $file (<logs/*>)
     {
         if(open(my $fh,'<',$file))
@@ -244,10 +243,6 @@ sub join_logs {
                 }
             }
             close($fh);
-        }
-        else
-        {
-            print "Could not open $file\n";
         }
     }
     
