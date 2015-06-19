@@ -74,7 +74,10 @@ if ($test_only)
     exit(0);
 }
 
-system("del /q logs\\*.txt");
+system("del /q logs\\*.txt") if(-d "logs");
+system("mkdir logs") if(! -d "logs");
+
+system("mkdir logs\\psexec") if(! -d "logs\\psexec");
 
 my $start_time = [gettimeofday];
 print "Using $max_threads threads.\n";
