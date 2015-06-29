@@ -63,6 +63,7 @@ my $max_threads = 8;
 my $use_dev_wtg = 0;
 my $thread_wait = 1;
 my $mandatory = 0;
+my $extra_emails = [];
 my $template_type = 'desktop'; # 'software-deployment' is the other choice
 # Don't ever choose these packages in the WTG. They will always fail and
 #   aren't ever useful for random testing.
@@ -149,6 +150,8 @@ Specifications must conform to this syntax:
 --mandatory
   Force the task sequences to occur as soon as possible with a mandatory assignment.
 
+--extra-emails <email>,<email>,<email>,...
+
 
 Example Specs:
 
@@ -225,6 +228,9 @@ GetOptions(
     },
 
     'mandatory' => \$mandatory,
+
+    'extra-emails=s' => \$extra_emails
+    },
 );
 print("Using ${max_threads} threads.\n");
 if (@random_include_packages) {
@@ -930,7 +936,7 @@ sub GenerateTemplate {
         }
 
         $fields{'email'} = $auth[0]."\@mst.edu";
-        $fields{'extraemail'} = join( ",", ("t-dwlfk2\@mst.edu")); #"t-rtanq9\@mst.edu", "t-dtptw6\@mst.edu" ) );
+        $fields{'extraemail'} = $extra_emails;
 
         # Submit the template.
         print("  ".$output_prefix."Submitting form...\n") if ($verbose);
