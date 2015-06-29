@@ -16,12 +16,14 @@ use Getopt::Long;
 
 my ($opts, $csv, $platform);
 my $out = "";
+my $exclude_master = 0;
 $platform = "win7-x64-sccm2012";
 
 GetOptions(
     "csv=s"        => \$csv,
     "platform=s"   => \$platform,
     "options=s"    => \$opts,
+    "exclude-clone-master" => \$exclude_master,
 );
 
 if( !(defined $csv) )
@@ -42,7 +44,9 @@ open( my $fh, '<', $csv );
 while( <$fh> )
 {
   # Skip if there's no mac address on this line
-  next unless /([0-9a-zA-Z]{2}:?){6}/;
+  next unless /([0-9a-zA-Z]{2}[:]?){6}/;
+  next if /^\#/;
+  next if( $exclude_master && /r[cvt]*99/ );
   chomp;
   
   # remove colons from mac address
