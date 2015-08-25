@@ -25,6 +25,7 @@ usage: $0 [--help] [--test]
 /;
 }
 
+my $hosts_file = "";
 my $test_only = 0;
 my $verbose   = 0;
 my $max_threads = 32;
@@ -41,7 +42,8 @@ GetOptions(
         push(@hosts,split(',',$_[1]));
     },
     'hosts-file=s' => sub {
-        if (open(my $FILE,'<',$_[1])) {
+        $hosts_file = $_[1];
+        if (open(my $FILE,'<',$hosts_file)) {
             foreach my $line (<$FILE>) {
                 chomp($line);
                 push(@hosts,$line) if $line !~ /^\s*$/;
@@ -70,9 +72,7 @@ if ($test_only)
     exit(0);
 }
 
-system("del /q logs\\*.txt") if(-d "logs");
 system("mkdir logs") if(! -d "logs");
-
 system("mkdir logs\\psexec") if(! -d "logs\\psexec");
 
 my $start_time = [gettimeofday];
@@ -97,6 +97,8 @@ for my $host (@hosts) {
 }
 
 while (wait()!=-1) { $children--; };
+
+system("del /q $hosts_file.bak");
 if ( defined($start_time) )
 {
     my $elapsed = tv_interval($start_time, [gettimeofday]);
@@ -144,6 +146,7 @@ sub install_client {
                 safe_print("TIMEOUT",$hostname);
             } elsif (/started on/) {
                 $started = 1;
+                system("perl -p -i.bak -e \"s/$hostname\s*//g\" $hosts_file");
                 safe_print("STARTED",$hostname);
             }
         }
